@@ -1,50 +1,65 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useEffect } from 'react';
+import { initializeDatabase } from './database';
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
-
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  useEffect(() => {
+    // This runs once when the app opens to ensure the DB is ready
+    initializeDatabase().catch(console.error);
+  }, []);
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <div className="flex h-screen w-full bg-dreamco-bg font-sans">
+      
+      {/* SIDEBAR - Featuring a subtle glassmorphism blur effect */}
+      <aside className="w-64 h-full bg-white/70 backdrop-blur-md border-r border-gray-200 shadow-sm flex flex-col">
+        <div className="p-6 flex items-center justify-center border-b border-gray-100">
+          {/* You can drop the actual logo.png image here later */}
+          <h1 className="text-2xl font-bold text-dreamco-blue tracking-tight">
+            DreamCo
+          </h1>
+        </div>
+        
+        <nav className="flex-1 p-4 space-y-2">
+          <a href="#" className="block px-4 py-3 rounded-lg bg-dreamco-blue text-white font-medium shadow-md transition-all hover:bg-blue-600">
+            Dashboard
+          </a>
+          <a href="#" className="block px-4 py-3 rounded-lg text-gray-600 font-medium transition-all hover:bg-gray-100 hover:text-dreamco-blue">
+            Inventory
+          </a>
+          <a href="#" className="block px-4 py-3 rounded-lg text-gray-600 font-medium transition-all hover:bg-gray-100 hover:text-dreamco-blue">
+            Rentals & Billing
+          </a>
+          <a href="#" className="block px-4 py-3 rounded-lg text-gray-600 font-medium transition-all hover:bg-gray-100 hover:text-dreamco-blue">
+            Customers
+          </a>
+        </nav>
+      </aside>
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
+      {/* MAIN CONTENT AREA */}
+      <main className="flex-1 p-8 overflow-y-auto">
+        <header className="mb-8">
+          <h2 className="text-3xl font-semibold text-dreamco-dark">Overview</h2>
+          <p className="text-gray-500 mt-1">Check the current status of your equipment and rentals.</p>
+        </header>
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+        {/* Dashboard Placeholder Cards */}
+        <div className="grid grid-cols-3 gap-6">
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center">
+            <span className="text-gray-500 text-sm font-medium">Active Rentals</span>
+            <span className="text-3xl font-bold text-dreamco-blue mt-2">14</span>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center">
+            <span className="text-gray-500 text-sm font-medium">Items in Maintenance</span>
+            <span className="text-3xl font-bold text-orange-500 mt-2">3</span>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center">
+            <span className="text-gray-500 text-sm font-medium">Monthly Revenue</span>
+            <span className="text-3xl font-bold text-green-600 mt-2">$4,250</span>
+          </div>
+        </div>
+      </main>
+
+    </div>
   );
 }
 
