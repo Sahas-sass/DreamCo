@@ -20,6 +20,10 @@ interface InvoiceDetail {
   start_date: string;
   issue_time: string;
   status: string;
+  total_amount: number; 
+  return_date?: string; 
+  return_time?: string; 
+  billed_days?: number; 
   items: InvoiceItem[];
 }
 
