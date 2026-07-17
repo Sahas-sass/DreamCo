@@ -5,6 +5,9 @@ import Inventory from './components/Inventory';
 import Rentals from './components/Rentals';
 import Customers from './components/Customers';
 
+// 1. Import the logo from your assets folder
+import logo from './assets/logo 1.png';
+
 function App() {
   const [activePage, setActivePage] = useState('dashboard');
 
@@ -17,8 +20,9 @@ function App() {
       
       {/* SIDEBAR */}
       <aside className="w-64 h-full bg-white/70 backdrop-blur-md border-r border-gray-200 shadow-sm flex flex-col">
-        <div className="p-6 flex items-center justify-center border-b border-gray-100">
-          <h1 className="text-2xl font-bold text-dreamco-blue tracking-tight">DreamCo</h1>
+        <div className="p-6 flex items-center justify-center border-b border-gray-100 min-h-[100px]">
+          {/* 2. Replaced the text with the logo image */}
+          <img src={logo} alt="DreamCo Logo" className="h-16 w-auto object-contain" />
         </div>
         
         <nav className="flex-1 p-4 space-y-2">
