@@ -16,14 +16,7 @@
         "width": 800,
         "height": 600
       }
-    ],
-    "security": {
-      "capabilities": [
-        "core:default",
-        "sql:default"
-      ],
-      "csp": null
-    }
+    ]
   },
   "bundle": {
     "active": true,
