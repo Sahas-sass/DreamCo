@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { initializeDatabase } from './database';
-import Inventory from './components/Inventory'; // Import the new component
+import Dashboard from './components/Dashboard';
+import Inventory from './components/Inventory';
 import Rentals from './components/Rentals';
 import Customers from './components/Customers';
 
 function App() {
-  // Track which page the user is currently viewing
   const [activePage, setActivePage] = useState('dashboard');
 
   useEffect(() => {
@@ -44,38 +44,14 @@ function App() {
             onClick={() => setActivePage('customers')}
             className={`w-full text-left px-4 py-3 rounded-lg font-medium transition-all ${activePage === 'customers' ? 'bg-dreamco-blue text-white shadow-md' : 'text-gray-600 hover:bg-gray-100 hover:text-dreamco-blue'}`}
           >
-            Customers
+            Customer Hub
           </button>
         </nav>
       </aside>
 
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 p-8 overflow-y-auto">
-        {/* Conditional Rendering based on activePage state */}
-        {activePage === 'dashboard' && (
-          <div className="animate-fade-in">
-            <header className="mb-8">
-              <h2 className="text-3xl font-semibold text-dreamco-dark">Overview</h2>
-              <p className="text-gray-500 mt-1">Check the current status of your equipment and rentals.</p>
-            </header>
-
-            <div className="grid grid-cols-3 gap-6">
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center">
-                <span className="text-gray-500 text-sm font-medium">Active Rentals</span>
-                <span className="text-3xl font-bold text-dreamco-blue mt-2">0</span>
-              </div>
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center">
-                <span className="text-gray-500 text-sm font-medium">Items in Maintenance</span>
-                <span className="text-3xl font-bold text-orange-500 mt-2">0</span>
-              </div>
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center">
-                <span className="text-gray-500 text-sm font-medium">Monthly Revenue</span>
-                <span className="text-3xl font-bold text-green-600 mt-2">$0</span>
-              </div>
-            </div>
-          </div>
-        )}
-
+        {activePage === 'dashboard' && <Dashboard />}
         {activePage === 'inventory' && <Inventory />}
         {activePage === 'rentals' && <Rentals />}
         {activePage === 'customers' && <Customers />}
