@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { loadDatabase } from '../database';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { save } from '@tauri-apps/plugin-dialog';
+import Modal from './Modal';
 
 interface DashboardStats { activeRentals: number; maintenanceItems: number; monthlyRevenue: number; totalCustomers: number; }
 interface RevenueData { name: string; total: number; }
@@ -14,6 +16,9 @@ export default function Dashboard() {
   const [topItems, setTopItems] = useState<TopItem[]>([]);
   const [recentInvoices, setRecentInvoices] = useState<RecentInvoice[]>([]);
   const [invStats, setInvStats] = useState<InventoryStats>({ total: 0, available: 0, rented: 0, maintenance: 0 });
+
+  // Custom Modal State
+  const [modal, setModal] = useState({ isOpen: false, title: '', message: '', type: 'info' as 'success'|'error'|'info' });
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -67,11 +72,100 @@ export default function Dashboard() {
     fetchDashboardData();
   }, []);
 
+  // FEATURE 1: EXPORT CSV
+  const handleExportCSV = async () => {
+    try {
+      const db = await loadDatabase();
+      const exportData = await db.select<any[]>(`
+        SELECT r.invoice_number as Invoice_ID, c.name as Customer_Name, c.nic as NIC, 
+               r.start_date as Issue_Date, r.return_date as Return_Date, 
+               r.billed_days as Total_Days, r.total_amount as Revenue 
+        FROM rentals r 
+        JOIN customers c ON r.customer_id = c.id 
+        WHERE r.status = 'Completed'
+        ORDER BY r.return_date DESC
+      `);
+
+      if (exportData.length === 0) {
+        return setModal({ isOpen: true, title: 'No Data', message: 'No completed transactions to export yet.', type: 'info' });
+      }
+
+      const headers = Object.keys(exportData[0]).join(',');
+      const rows = exportData.map(row => Object.values(row).map(value => `"${value}"`).join(','));
+      const csvContent = [headers, ...rows].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `DreamCo_Revenue_Report_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      setModal({ isOpen: true, title: 'Export Successful', message: 'Your monthly revenue report has been downloaded.', type: 'success' });
+    } catch (error) {
+      setModal({ isOpen: true, title: 'Export Failed', message: String(error), type: 'error' });
+    }
+  };
+
+  // FEATURE 2: 1-CLICK BACKUP
+  const handleBackupDB = async () => {
+    try {
+      const backupPath = await save({
+        title: 'Save Database Backup',
+        defaultPath: `DreamCo_Backup_${new Date().toISOString().split('T')[0]}.db`,
+        filters: [{ name: 'SQLite Database', extensions: ['db'] }]
+      });
+
+      if (!backupPath) return; // User canceled the dialog
+
+      const db = await loadDatabase();
+      const safePath = backupPath.replace(/'/g, "''"); // Escape just in case
+      
+      try {
+        // SQLite's native cloning command
+        await db.execute(`VACUUM INTO '${safePath}'`);
+        setModal({ isOpen: true, title: 'Backup Successful!', message: `Database safely copied to: ${backupPath}`, type: 'success' });
+      } catch (sqlError: any) {
+        // VACUUM INTO fails if the file already exists to prevent accidental overwrites
+        if (String(sqlError).includes("exists")) {
+          setModal({ isOpen: true, title: 'Backup Failed', message: 'That file already exists. Please delete it first or choose a new name.', type: 'error' });
+        } else {
+          throw sqlError;
+        }
+      }
+    } catch (error) {
+      setModal({ isOpen: true, title: 'Backup Error', message: String(error), type: 'error' });
+    }
+  };
+
   return (
     <div className="space-y-8 animate-fade-in pb-12">
-      <header>
-        <h2 className="text-3xl font-semibold text-dreamco-dark dark:text-white transition-colors">Business Overview</h2>
-        <p className="text-gray-500 dark:text-gray-400 mt-1 transition-colors">Real-time metrics, revenue trends, and operational insights.</p>
+      <Modal {...modal} onClose={() => setModal({ ...modal, isOpen: false })} />
+
+      <header className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
+        <div>
+          <h2 className="text-3xl font-semibold text-dreamco-dark dark:text-white transition-colors">Business Overview</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-1 transition-colors">Real-time metrics, revenue trends, and operational insights.</p>
+        </div>
+        
+        {/* ACTION BUTTONS */}
+        <div className="flex gap-3">
+          <button 
+            onClick={handleBackupDB}
+            className="bg-gray-900 dark:bg-gray-800 text-white px-5 py-2.5 rounded-xl shadow-md hover:shadow-lg transition-all font-medium flex items-center gap-2"
+          >
+            <span className="text-blue-400 font-bold">💾</span> Backup DB
+          </button>
+          
+          <button 
+            onClick={handleExportCSV}
+            className="bg-white dark:bg-gray-700 text-dreamco-dark dark:text-white border border-gray-200 dark:border-gray-600 px-5 py-2.5 rounded-xl shadow-sm hover:shadow-md transition-all font-medium flex items-center gap-2"
+          >
+            <span className="text-green-600 font-bold">⭳</span> Export CSV
+          </button>
+        </div>
       </header>
 
       {/* KPI Cards */}
