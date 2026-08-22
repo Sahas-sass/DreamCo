@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { loadDatabase } from '../database';
+import { generateInvoicePDF } from '../pdfGenerator';
 
 interface Equipment {
   id: number;
@@ -139,6 +140,19 @@ export default function Rentals() {
         );
         await db.execute("UPDATE equipment SET status = 'Rented' WHERE id = $1", [cartItem.equipment.id]);
       }
+
+      // --- ADD THIS PDF GENERATION BLOCK ---
+      generateInvoicePDF({
+        invoice_number: invoiceNumber,
+        customer_name: customerName,
+        nic: customerNic,
+        date: issueDate,
+        time: issueTime,
+        items: cart.map(c => c.equipment),
+        days: cart[0]?.days || 1, 
+        total: cartTotal
+      }, 'Issue');
+      // -----------------------------------
 
       // 4. Reset Form
       setCustomerName('');
