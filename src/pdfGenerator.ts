@@ -10,6 +10,7 @@ interface PDFData {
   items: any[];
   days: number;
   total: number;
+  discount?: number; // Added optional discount
 }
 
 export const generateInvoicePDF = (data: PDFData, type: 'Issue' | 'Return') => {
@@ -17,7 +18,7 @@ export const generateInvoicePDF = (data: PDFData, type: 'Issue' | 'Return') => {
 
   // 1. Header (DreamCo Branding)
   doc.setFontSize(24);
-  doc.setTextColor(18, 115, 185); // DreamCo Blue (#1273B9)
+  doc.setTextColor(18, 115, 185);
   doc.text("DreamCo", 14, 22);
   
   doc.setFontSize(10);
@@ -51,24 +52,35 @@ export const generateInvoicePDF = (data: PDFData, type: 'Issue' | 'Return') => {
     head: [['Item Description', 'Qty', 'Daily Rate', 'Days', 'Subtotal']],
     body: tableRows,
     theme: 'striped',
-    headStyles: { fillColor: [18, 115, 185], textColor: 255 }, // DreamCo Blue Header
+    headStyles: { fillColor: [18, 115, 185], textColor: 255 },
     styles: { fontSize: 10, cellPadding: 4 },
   });
 
   // 4. Totals & Footer
-  const finalY = (doc as any).lastAutoTable.finalY || 75;
+  let finalY = (doc as any).lastAutoTable.finalY || 75;
   
+  // -- DISCOUNT RENDERING LOGIC --
+  if (data.discount && data.discount > 0) {
+    const subtotal = data.total + data.discount;
+    doc.setFontSize(11);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Subtotal: Rs. ${subtotal.toLocaleString('en-LK')}`, 14, finalY + 10);
+    doc.setTextColor(239, 68, 68); // Red color for discount
+    doc.text(`Discount Applied: - Rs. ${data.discount.toLocaleString('en-LK')}`, 14, finalY + 16);
+    finalY += 14; // Push the final total down slightly
+  }
+
   doc.setFontSize(14);
   doc.setTextColor(18, 115, 185);
   doc.text(
     `${type === 'Issue' ? 'Estimated' : 'Final'} Total: Rs. ${data.total.toLocaleString('en-LK')}`, 
     14, 
-    finalY + 12
+    finalY + 14
   );
 
   doc.setFontSize(10);
   doc.setTextColor(150, 150, 150);
-  doc.text("Thank you for choosing DreamCo Construction.", 14, finalY + 30);
+  doc.text("Thank you for choosing DreamCo Construction.", 14, finalY + 32);
   
   // 5. Download the File
   doc.save(`${data.invoice_number}_${type}.pdf`);
