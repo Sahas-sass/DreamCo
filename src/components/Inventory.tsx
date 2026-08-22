@@ -30,6 +30,9 @@ export default function Inventory() {
   const [qty, setQty] = useState('1');
   const [rate, setRate] = useState('');
 
+  // Table Filter State
+  const [filterCategory, setFilterCategory] = useState('All');
+
   const fetchEquipment = async () => {
     try {
       const db = await loadDatabase();
@@ -63,10 +66,10 @@ export default function Inventory() {
       fetchEquipment();
     } catch (error) {
       console.error("Failed to add item:", error);
+      window.alert("Database Error: " + error);
     }
   };
 
-  // Feature: Update Daily Rate
   const handleEditRate = async (id: number, currentRate: number) => {
     const newRateStr = window.prompt("Enter new daily rate (LKR):", currentRate.toString());
     if (!newRateStr) return;
@@ -86,8 +89,13 @@ export default function Inventory() {
     }
   };
 
+  // Instantly filter the equipment list before rendering it
+  const displayedEquipment = filterCategory === 'All' 
+    ? equipment 
+    : equipment.filter(item => item.category === filterCategory);
+
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="space-y-8 animate-fade-in pb-12">
       <header>
         <h2 className="text-3xl font-semibold text-dreamco-dark">Inventory Management</h2>
         <p className="text-gray-500 mt-1">Track your fleet and set LKR daily rates.</p>
@@ -130,11 +138,28 @@ export default function Inventory() {
         </form>
       </div>
 
-      {/* Inventory Table */}
+      {/* Filter and Table Section */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        
+        {/* Toolbar above the table */}
+        <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+          <h3 className="text-lg font-semibold text-dreamco-dark">Current Inventory</h3>
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium text-gray-500">Filter:</label>
+            <select 
+              value={filterCategory} 
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-dreamco-blue/40 outline-none text-sm text-gray-700 shadow-sm"
+            >
+              <option value="All">All Categories</option>
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="bg-gray-50/50 border-b border-gray-100 text-sm text-gray-500">
+            <tr className="border-b border-gray-100 text-sm text-gray-500">
               <th className="py-4 px-6 font-medium">Item Name & ID</th>
               <th className="py-4 px-6 font-medium">Category</th>
               <th className="py-4 px-6 font-medium">Qty</th>
@@ -144,10 +169,15 @@ export default function Inventory() {
             </tr>
           </thead>
           <tbody>
-            {equipment.length === 0 ? (
-              <tr><td colSpan={6} className="py-8 text-center text-gray-400">No equipment added yet.</td></tr>
+            {displayedEquipment.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="py-12 text-center">
+                  <p className="text-gray-400 font-medium">No equipment found.</p>
+                  {filterCategory !== 'All' && <p className="text-sm text-gray-400 mt-1">Try selecting a different category.</p>}
+                </td>
+              </tr>
             ) : (
-              equipment.map((item) => (
+              displayedEquipment.map((item) => (
                 <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/30 transition-colors">
                   <td className="py-4 px-6 font-medium text-gray-800">
                     {item.name}
@@ -159,7 +189,13 @@ export default function Inventory() {
                     Rs. {item.daily_rate.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
                   </td>
                   <td className="py-4 px-6">
-                    <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">{item.status}</span>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                      item.status === 'Available' ? 'bg-green-100 text-green-700' :
+                      item.status === 'Rented' ? 'bg-blue-100 text-blue-700' :
+                      'bg-orange-100 text-orange-700'
+                    }`}>
+                      {item.status}
+                    </span>
                   </td>
                   <td className="py-4 px-6 text-right">
                     <button 
