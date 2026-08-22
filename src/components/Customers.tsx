@@ -20,10 +20,10 @@ interface InvoiceDetail {
   start_date: string;
   issue_time: string;
   status: string;
-  total_amount: number; 
-  return_date?: string; 
-  return_time?: string; 
-  billed_days?: number; 
+  total_amount: number;
+  return_date?: string;
+  return_time?: string;
+  billed_days?: number;
   items: InvoiceItem[];
 }
 
@@ -34,6 +34,7 @@ export default function Customers() {
 
   // Return Processing State
   const [billedDays, setBilledDays] = useState<number>(1);
+  const [discount, setDiscount] = useState<number>(0); // NEW: Discount state
   const [returnDate, setReturnDate] = useState(new Date().toISOString().split('T')[0]);
   const [returnTime, setReturnTime] = useState(
     new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
@@ -43,11 +44,11 @@ export default function Customers() {
     e.preventDefault();
     setSearchError('');
     setInvoice(null);
+    setDiscount(0); // Reset discount on new search
 
     try {
       const db = await loadDatabase();
       
-      // 1. Fetch the main rental and customer data
       const rentalResult = await db.select<any[]>(`
         SELECT r.*, c.name as customer_name, c.nic, c.phone 
         FROM rentals r 
@@ -62,7 +63,6 @@ export default function Customers() {
 
       const rentalData = rentalResult[0];
 
-      // 2. Fetch the associated equipment items
       const itemsResult = await db.select<any[]>(`
         SELECT ri.qty, ri.daily_rate, ri.equipment_id, e.name, e.unique_number 
         FROM rental_items ri 
@@ -75,24 +75,25 @@ export default function Customers() {
         items: itemsResult
       });
 
-      // 3. Auto-calculate suggested days based on issue date vs today
       const issueDateObj = new Date(rentalData.start_date);
       const today = new Date();
       const diffTime = Math.abs(today.getTime() - issueDateObj.getTime());
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       
-      setBilledDays(diffDays === 0 ? 1 : diffDays); // Minimum 1 day
+      setBilledDays(diffDays === 0 ? 1 : diffDays); 
 
     } catch (error) {
       console.error("Search failed:", error);
       setSearchError('A database error occurred.');
+      window.alert("Database Search Error: " + error);
     }
   };
 
-  // Calculate the dynamic total whenever the user changes the day count
-  const calculatedTotal = invoice 
+  // Math: (Rate * Days) - Discount (Ensure it doesn't go below 0)
+  const baseTotal = invoice 
     ? invoice.items.reduce((sum, item) => sum + (item.daily_rate * billedDays), 0)
     : 0;
+  const calculatedTotal = Math.max(0, baseTotal - discount);
 
   const handleCompleteReturn = async () => {
     if (!invoice) return;
@@ -100,19 +101,16 @@ export default function Customers() {
     try {
       const db = await loadDatabase();
 
-      // 1. Update the rental invoice to 'Completed' with final dates and total
       await db.execute(`
         UPDATE rentals 
         SET status = 'Completed', return_date = $1, return_time = $2, billed_days = $3, total_amount = $4 
         WHERE id = $5
       `, [returnDate, returnTime, billedDays, calculatedTotal, invoice.id]);
 
-      // 2. Release all equipment back into 'Available' inventory
       for (const item of invoice.items) {
         await db.execute("UPDATE equipment SET status = 'Available' WHERE id = $1", [item.equipment_id]);
       }
 
-      // GENERATE PDF
       generateInvoicePDF({
         invoice_number: invoice.invoice_number,
         customer_name: invoice.customer_name,
@@ -121,17 +119,17 @@ export default function Customers() {
         time: returnTime,
         items: invoice.items,
         days: billedDays,
-        total: calculatedTotal
+        total: calculatedTotal,
+        discount: discount // Pass the discount to the PDF
       }, 'Return');
 
-      alert(`Return Processed!\nFinal Total: Rs. ${calculatedTotal.toLocaleString('en-LK')}`);
+      alert(`Return Processed Successfully!\nFinal Total: Rs. ${calculatedTotal.toLocaleString('en-LK')}`);
       
-      // Reset view
       setInvoice(null);
       setSearchQuery('');
     } catch (error) {
       console.error("Return process failed:", error);
-      alert("Failed to process return.");
+      window.alert("Database Update Error: " + error);
     }
   };
 
@@ -142,7 +140,6 @@ export default function Customers() {
         <p className="text-gray-500 mt-2">Scan or enter an Invoice ID to process returned equipment.</p>
       </header>
 
-      {/* Search Bar - Minimal & Clean */}
       <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center">
         <form onSubmit={handleSearch} className="w-full max-w-lg flex gap-3">
           <input 
@@ -160,11 +157,9 @@ export default function Customers() {
         {searchError && <p className="text-red-500 mt-4 text-sm font-medium">{searchError}</p>}
       </div>
 
-      {/* Invoice Details & Return Panel (Glassmorphism layout) */}
       {invoice && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fade-in mt-8">
           
-          {/* Left Column: Original Invoice Data */}
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white/70 backdrop-blur-lg p-8 rounded-2xl shadow-sm border border-gray-100">
               <div className="flex justify-between items-start border-b border-gray-100 pb-4 mb-6">
@@ -175,7 +170,7 @@ export default function Customers() {
                 <div className="text-right">
                   <p className="font-semibold text-dreamco-dark">{invoice.customer_name}</p>
                   <p className="text-gray-500 text-sm">NIC: {invoice.nic}</p>
-                  <p className="text-gray-500 text-sm">{invoice.phone}</p>
+                  <p className="text-gray-500 text-sm">{invoice.phone || 'N/A'}</p>
                 </div>
               </div>
 
@@ -206,13 +201,13 @@ export default function Customers() {
             </div>
           </div>
 
-          {/* Right Column: Return Processing Action Panel */}
           <div className="lg:col-span-1">
             {invoice.status === 'Completed' ? (
               <div className="bg-green-50 border border-green-100 p-6 rounded-2xl flex flex-col items-center justify-center h-full text-center">
                 <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-4 text-xl">✓</div>
                 <h3 className="text-lg font-bold text-green-800">Return Completed</h3>
-                <p className="text-green-600 text-sm mt-2">This invoice is closed.</p>
+                <p className="text-green-600 text-sm mt-2 mb-4">This invoice is closed.</p>
+                
                 <button 
                   onClick={() => generateInvoicePDF({
                     invoice_number: invoice.invoice_number,
@@ -224,7 +219,7 @@ export default function Customers() {
                     days: invoice.billed_days || 1,
                     total: invoice.total_amount
                   }, 'Return')}
-                  className="mt-4 bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors"
+                  className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors w-full shadow-sm"
                 >
                   Re-Download Receipt
                 </button>
@@ -239,15 +234,19 @@ export default function Customers() {
                     <input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 outline-none" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-1">Return Time</label>
-                    <input type="time" value={returnTime} onChange={(e) => setReturnTime(e.target.value)} className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 outline-none" />
-                  </div>
-                  <div>
                     <label className="block text-sm font-medium text-gray-600 mb-1 flex justify-between">
                       <span>Billed Days</span>
-                      <span className="text-xs text-dreamco-blue">Editable</span>
                     </label>
                     <input type="number" min="1" value={billedDays} onChange={(e) => setBilledDays(parseInt(e.target.value) || 1)} className="w-full bg-white border border-dreamco-blue/40 ring-2 ring-dreamco-blue/10 rounded-xl px-4 py-2.5 outline-none font-bold text-dreamco-dark" />
+                  </div>
+                  
+                  {/* NEW: Discount Field */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-1 flex justify-between">
+                      <span>Discount (LKR)</span>
+                      <span className="text-xs text-orange-400">Optional</span>
+                    </label>
+                    <input type="number" min="0" value={discount} onChange={(e) => setDiscount(parseInt(e.target.value) || 0)} className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-orange-400/40 text-orange-600 font-medium" />
                   </div>
 
                   <div className="pt-4 border-t border-gray-200 mt-6">
@@ -264,7 +263,6 @@ export default function Customers() {
               </div>
             )}
           </div>
-
         </div>
       )}
     </div>
