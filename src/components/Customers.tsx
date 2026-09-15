@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { loadDatabase } from '../database';
 import { generateInvoicePDF } from '../pdfGenerator';
 import Modal from './Modal';
@@ -13,9 +13,26 @@ export default function Customers() {
   const [billedDays, setBilledDays] = useState<number>(1);
   const [discount, setDiscount] = useState<number>(0);
   const [returnDate, setReturnDate] = useState(new Date().toISOString().split('T')[0]);
-  const [returnTime, setReturnTime] = useState(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
+  
+  // FIXED: Removed the unused setReturnTime 
+  const [returnTime] = useState(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
   
   const [modal, setModal] = useState({ isOpen: false, title: '', message: '', type: 'info' as 'success'|'error'|'info' });
+
+  useEffect(() => {
+    if (invoice && invoice.start_date) {
+      const issueObj = new Date(invoice.start_date);
+      const returnObj = new Date(returnDate);
+      
+      issueObj.setHours(0, 0, 0, 0);
+      returnObj.setHours(0, 0, 0, 0);
+
+      const diffTime = returnObj.getTime() - issueObj.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      setBilledDays(diffDays <= 0 ? 1 : diffDays);
+    }
+  }, [returnDate, invoice?.start_date]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,13 +46,11 @@ export default function Customers() {
       const itemsResult = await db.select<any[]>(`SELECT ri.qty, ri.daily_rate, ri.equipment_id, e.name, e.unique_number FROM rental_items ri JOIN equipment e ON ri.equipment_id = e.id WHERE ri.rental_id = $1`, [rentalData.id]);
       
       setInvoice({ ...rentalData, items: itemsResult });
-      const diffTime = Math.abs(new Date().getTime() - new Date(rentalData.start_date).getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      setBilledDays(diffDays === 0 ? 1 : diffDays); 
+      setReturnDate(new Date().toISOString().split('T')[0]); 
     } catch (error) { setModal({ isOpen: true, title: 'Search Error', message: String(error), type: 'error' }); }
   };
 
-  const baseTotal = invoice ? invoice.items.reduce((sum, item) => sum + (item.daily_rate * billedDays), 0) : 0;
+  const baseTotal = invoice ? invoice.items.reduce((sum, item) => sum + (item.daily_rate * (item.qty || 1) * billedDays), 0) : 0;
   const calculatedTotal = Math.max(0, baseTotal - discount);
 
   const handleCompleteReturn = async () => {
@@ -43,13 +58,14 @@ export default function Customers() {
     try {
       const db = await loadDatabase();
       await db.execute(`UPDATE rentals SET status = 'Completed', return_date = $1, return_time = $2, billed_days = $3, total_amount = $4 WHERE id = $5`, [returnDate, returnTime, billedDays, calculatedTotal, invoice.id]);
+      
       for (const item of invoice.items) {
-        await db.execute("UPDATE equipment SET status = 'Available' WHERE id = $1", [item.equipment_id]);
+        await db.execute("UPDATE equipment SET status = 'Available' WHERE id = $1 AND category != 'Bulk Items'", [item.equipment_id]);
       }
       
       generateInvoicePDF({
         invoice_number: invoice.invoice_number, customer_name: invoice.customer_name, nic: invoice.nic,
-        date: returnDate, time: returnTime, items: invoice.items, days: billedDays, total: calculatedTotal, discount: discount
+        date: returnDate, time: returnTime, issue_date: invoice.start_date, items: invoice.items, days: billedDays, total: calculatedTotal, discount: discount
       }, 'Return');
 
       setModal({ isOpen: true, title: 'Return Processed!', message: `Final Total: Rs. ${calculatedTotal.toLocaleString('en-LK')}. PDF Receipt downloaded.`, type: 'success' });
@@ -93,6 +109,7 @@ export default function Customers() {
                 <thead>
                   <tr className="bg-gray-50/50 dark:bg-gray-800/50 border-y border-gray-100 dark:border-gray-700 text-sm text-gray-500 dark:text-gray-400">
                     <th className="py-2 px-4 font-medium">Item</th>
+                    <th className="py-2 px-4 font-medium text-center">Qty</th>
                     <th className="py-2 px-4 font-medium text-right">Daily Rate</th>
                   </tr>
                 </thead>
@@ -100,6 +117,7 @@ export default function Customers() {
                   {invoice.items.map((item, idx) => (
                     <tr key={idx} className="border-b border-gray-50 dark:border-gray-800/50">
                       <td className="py-3 px-4 text-gray-800 dark:text-gray-200">{item.name}</td>
+                      <td className="py-3 px-4 text-center text-blue-600 dark:text-blue-400 font-bold">{item.qty || 1}</td>
                       <td className="py-3 px-4 text-right text-gray-600 dark:text-gray-400">Rs. {item.daily_rate}</td>
                     </tr>
                   ))}
@@ -113,28 +131,40 @@ export default function Customers() {
               <div className="bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 p-6 rounded-2xl flex flex-col items-center justify-center h-full text-center">
                 <div className="w-12 h-12 bg-green-100 dark:bg-green-900 text-green-600 dark:text-green-400 rounded-full flex items-center justify-center mb-4 text-xl">✓</div>
                 <h3 className="text-lg font-bold text-green-800 dark:text-green-400">Return Completed</h3>
-                <button onClick={() => generateInvoicePDF({...invoice, date: invoice.return_date!, time: invoice.return_time!, days: invoice.billed_days!, total: invoice.total_amount, discount}, 'Return')} className="mt-4 bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700 w-full shadow-sm">Re-Download Receipt</button>
+                <button onClick={() => generateInvoicePDF({...invoice, date: invoice.return_date!, time: invoice.return_time!, issue_date: invoice.start_date, days: invoice.billed_days!, total: invoice.total_amount, discount}, 'Return')} className="mt-4 bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700 w-full shadow-sm">Re-Download Receipt</button>
               </div>
             ) : (
-              <div className="bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 p-6 rounded-2xl shadow-md border border-gray-100 dark:border-gray-700 transition-colors">
+              // FIXED: bg-linear-to-br replaced bg-gradient-to-br
+              <div className="bg-linear-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 p-6 rounded-2xl shadow-md border border-gray-100 dark:border-gray-700 transition-colors">
                 <h3 className="text-lg font-semibold text-dreamco-dark dark:text-white mb-5 border-b border-gray-100 dark:border-gray-700 pb-2">Process Return</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Return Date</label>
-                    <input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className="w-full bg-white dark:bg-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 outline-none" />
+                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Issue Date</label>
+                    <div className="w-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 font-medium cursor-not-allowed">
+                      {invoice.start_date}
+                    </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1 flex justify-between"><span>Billed Days</span></label>
+                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Return Date</label>
+                    <input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className="w-full bg-white dark:bg-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-dreamco-blue/40 transition-colors" />
+                  </div>
+                  <div>
+                    {/* FIXED: Removed the conflicting 'block' class, keeping 'flex justify-between' */}
+                    <label className="flex text-sm font-medium text-gray-600 dark:text-gray-400 mb-1 justify-between">
+                      <span>Billed Days</span>
+                      <span className="text-xs text-dreamco-blue">Editable</span>
+                    </label>
                     <input type="number" min="1" value={billedDays} onChange={(e) => setBilledDays(parseInt(e.target.value)||1)} className="w-full bg-white dark:bg-gray-800 dark:text-white border border-dreamco-blue/40 rounded-xl px-4 py-2.5 outline-none font-bold" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1 flex justify-between"><span>Discount (LKR)</span></label>
+                    {/* FIXED: Removed the conflicting 'block' class, keeping 'flex justify-between' */}
+                    <label className="flex text-sm font-medium text-gray-600 dark:text-gray-400 mb-1 justify-between"><span>Discount (LKR)</span></label>
                     <input type="number" min="0" value={discount} onChange={(e) => setDiscount(parseInt(e.target.value)||0)} className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-orange-400/40 text-orange-600 font-medium" />
                   </div>
                   <div className="pt-4 border-t border-gray-200 dark:border-gray-700 mt-6">
                     <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Final Amount Due</p>
                     <p className="text-3xl font-bold text-dreamco-dark dark:text-white mb-6">Rs. {calculatedTotal.toLocaleString('en-LK')}</p>
-                    <button onClick={handleCompleteReturn} className="w-full bg-gradient-to-r from-dreamco-blue to-blue-500 text-white px-6 py-3.5 rounded-xl shadow-lg font-semibold">Complete & Close Invoice</button>
+                    <button onClick={handleCompleteReturn} className="w-full bg-linear-to-r from-dreamco-blue to-blue-500 text-white px-6 py-3.5 rounded-xl shadow-lg font-semibold">Complete & Close Invoice</button>
                   </div>
                 </div>
               </div>
