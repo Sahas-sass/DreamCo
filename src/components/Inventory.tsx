@@ -53,7 +53,6 @@ export default function Inventory() {
     } catch (error) { setModal({ isOpen: true, title: 'Error', message: String(error), type: 'error' }); }
   };
 
-  // NEW: Handle Item Deletion
   const handleDelete = async (id: number, status: string) => {
     if (status === 'Rented') {
       return setModal({ isOpen: true, title: 'Action Denied', message: 'You cannot delete an item while it is currently rented out.', type: 'error' });
@@ -71,7 +70,6 @@ export default function Inventory() {
     }
   };
 
-  // NEW: Handle Maintenance Toggle
   const handleToggleMaintenance = async (id: number, currentStatus: string) => {
     if (currentStatus === 'Rented') {
       return setModal({ isOpen: true, title: 'Action Denied', message: 'You cannot put an item into maintenance while it is rented out.', type: 'error' });
@@ -100,7 +98,8 @@ export default function Inventory() {
 
       <div className="bg-white/80 dark:bg-gray-900/60 backdrop-blur-lg p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 transition-colors">
         <form onSubmit={handleAddItem} className="flex flex-wrap gap-4 items-end">
-          <div className="flex-1 min-w-[200px]">
+          {/* UPDATED: min-w-[200px] to min-w-50 */}
+          <div className="flex-1 min-w-50">
             <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Item Name</label>
             <input type="text" required value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-dreamco-blue/40" />
           </div>
@@ -122,7 +121,9 @@ export default function Inventory() {
             <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Rate (LKR)</label>
             <input type="number" step="0.01" required value={rate} onChange={(e) => setRate(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-dreamco-blue/40" />
           </div>
-          <button type="submit" className="bg-gradient-to-r from-dreamco-blue to-blue-500 text-white px-6 py-2.5 rounded-xl shadow-md font-medium h-[46px]">
+          
+          {/* UPDATED: bg-gradient-to-r to bg-linear-to-r and h-[46px] to h-11.5 */}
+          <button type="submit" className="bg-linear-to-r from-dreamco-blue to-blue-500 text-white px-6 py-2.5 rounded-xl shadow-md font-medium h-11.5">
             + Add Item
           </button>
         </form>
@@ -164,7 +165,6 @@ export default function Inventory() {
                     'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
                   }`}>{item.status}</span>
                 </td>
-                {/* NEW: Expanded Actions Column */}
                 <td className="py-4 px-6 text-right">
                   <div className="flex justify-end gap-4 items-center">
                     <button onClick={() => handleEditRate(item.id, item.daily_rate)} className="text-dreamco-blue hover:text-blue-700 dark:hover:text-blue-400 text-sm font-medium transition-colors">Edit Rate</button>
