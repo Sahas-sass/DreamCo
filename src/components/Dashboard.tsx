@@ -2,30 +2,29 @@ import { useState, useEffect } from 'react';
 import { loadDatabase } from '../database';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { save } from '@tauri-apps/plugin-dialog';
+import { generateSummaryPDF } from '../pdfGenerator';
 import Modal from './Modal';
 
 interface DashboardStats { activeRentals: number; maintenanceItems: number; monthlyRevenue: number; totalCustomers: number; }
 interface RevenueData { name: string; total: number; }
 interface TopItem { name: string; rents: number; }
 interface InventoryStats { total: number; available: number; rented: number; maintenance: number; }
-
-interface OngoingInvoice { 
-  invoice_number: string; 
-  customer_name: string; 
-  start_date: string; 
-  expected_return: string; 
-  isOverdue?: boolean;
-  daysOverdue?: number;
-}
+interface OngoingInvoice { invoice_number: string; customer_name: string; start_date: string; expected_return: string; isOverdue?: boolean; daysOverdue?: number; }
 
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats>({ activeRentals: 0, maintenanceItems: 0, monthlyRevenue: 0, totalCustomers: 0 });
   const [revenueTrend, setRevenueTrend] = useState<RevenueData[]>([]);
   const [topItems, setTopItems] = useState<TopItem[]>([]);
   const [invStats, setInvStats] = useState<InventoryStats>({ total: 0, available: 0, rented: 0, maintenance: 0 });
-  
   const [ongoingInvoices, setOngoingInvoices] = useState<OngoingInvoice[]>([]);
+  const [chartFilter, setChartFilter] = useState<'6months' | 'month' | '7days'>('6months');
   const [modal, setModal] = useState({ isOpen: false, title: '', message: '', type: 'info' as 'success'|'error'|'info' });
+
+  // NEW: Export Modal State
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [exportRange, setExportRange] = useState<'all' | '7days' | 'month' | 'custom'>('all');
+  const [customStartDate, setCustomStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [customEndDate, setCustomEndDate] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -40,23 +39,7 @@ export default function Dashboard() {
         const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
         const revResult = await db.select<{ total: number | null }[]>("SELECT SUM(total_amount) as total FROM rentals WHERE status = 'Completed' AND return_date LIKE $1", [`${currentMonthStr}%`]);
 
-        setStats({
-          activeRentals: activeResult[0]?.count || 0,
-          maintenanceItems: maintResult[0]?.count || 0,
-          totalCustomers: custResult[0]?.count || 0,
-          monthlyRevenue: revResult[0]?.total || 0
-        });
-
-        const trendData: RevenueData[] = [];
-        for (let i = 5; i >= 0; i--) {
-          const d = new Date();
-          d.setMonth(d.getMonth() - i);
-          const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-          const monthName = d.toLocaleString('default', { month: 'short' });
-          const monthRev = await db.select<{ total: number | null }[]>("SELECT SUM(total_amount) as total FROM rentals WHERE status = 'Completed' AND return_date LIKE $1", [`${monthStr}%`]);
-          trendData.push({ name: monthName, total: monthRev[0]?.total || 0 });
-        }
-        setRevenueTrend(trendData);
+        setStats({ activeRentals: activeResult[0]?.count || 0, maintenanceItems: maintResult[0]?.count || 0, totalCustomers: custResult[0]?.count || 0, monthlyRevenue: revResult[0]?.total || 0 });
 
         const topItemsResult = await db.select<TopItem[]>(`SELECT e.name, COUNT(ri.id) as rents FROM rental_items ri JOIN equipment e ON ri.equipment_id = e.id GROUP BY e.id ORDER BY rents DESC LIMIT 5`);
         setTopItems(topItemsResult);
@@ -71,12 +54,7 @@ export default function Dashboard() {
         });
         setInvStats({ total: t, available: a, rented: r, maintenance: m });
 
-        const ongoingResult = await db.select<OngoingInvoice[]>(`
-          SELECT r.invoice_number, c.name as customer_name, r.start_date, r.expected_return 
-          FROM rentals r JOIN customers c ON r.customer_id = c.id 
-          WHERE r.status = 'Issued' 
-          ORDER BY r.expected_return ASC
-        `);
+        const ongoingResult = await db.select<OngoingInvoice[]>(`SELECT r.invoice_number, c.name as customer_name, r.start_date, r.expected_return FROM rentals r JOIN customers c ON r.customer_id = c.id WHERE r.status = 'Issued' ORDER BY r.expected_return ASC`);
         
         const currentDate = new Date();
         currentDate.setHours(0, 0, 0, 0);
@@ -86,47 +64,134 @@ export default function Dashboard() {
           expDate.setHours(0, 0, 0, 0);
           const diffTime = currentDate.getTime() - expDate.getTime();
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          
-          return {
-            ...inv,
-            isOverdue: diffDays > 0,
-            daysOverdue: diffDays > 0 ? diffDays : 0
-          };
+          return { ...inv, isOverdue: diffDays > 0, daysOverdue: diffDays > 0 ? diffDays : 0 };
         });
 
         setOngoingInvoices(processedOngoing);
-
       } catch (error) { console.error("Failed to load dashboard data:", error); }
     };
     fetchDashboardData();
   }, []);
 
-  const handleExportCSV = async () => {
+  useEffect(() => {
+    const fetchChartData = async () => {
+      try {
+        const db = await loadDatabase();
+        const trendData: RevenueData[] = [];
+        const today = new Date();
+
+        if (chartFilter === '6months') {
+          for (let i = 5; i >= 0; i--) {
+            const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+            const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            const monthName = d.toLocaleString('default', { month: 'short' });
+            const monthRev = await db.select<{ total: number | null }[]>("SELECT SUM(total_amount) as total FROM rentals WHERE status = 'Completed' AND return_date LIKE $1", [`${monthStr}%`]);
+            trendData.push({ name: monthName, total: monthRev[0]?.total || 0 });
+          }
+        } 
+        else if (chartFilter === '7days') {
+          for (let i = 6; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(today.getDate() - i);
+            const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            const dayName = d.toLocaleDateString('default', { weekday: 'short' });
+            const dayRev = await db.select<{ total: number | null }[]>("SELECT SUM(total_amount) as total FROM rentals WHERE status = 'Completed' AND return_date = $1", [dateStr]);
+            trendData.push({ name: dayName, total: dayRev[0]?.total || 0 });
+          }
+        } 
+        else if (chartFilter === 'month') {
+          const year = today.getFullYear();
+          const month = today.getMonth();
+          const daysInMonth = new Date(year, month + 1, 0).getDate();
+          const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+          
+          const monthData = await db.select<{ return_date: string, total_amount: number }[]>("SELECT return_date, total_amount FROM rentals WHERE status = 'Completed' AND return_date LIKE $1", [`${monthStr}%`]);
+          
+          for (let i = 1; i <= daysInMonth; i++) {
+            const dateStr = `${monthStr}-${String(i).padStart(2, '0')}`;
+            const total = monthData.filter(r => r.return_date === dateStr).reduce((sum, r) => sum + r.total_amount, 0);
+            trendData.push({ name: String(i), total });
+          }
+        }
+        setRevenueTrend(trendData);
+      } catch (error) { console.error("Failed to load chart data:", error); }
+    };
+    fetchChartData();
+  }, [chartFilter]);
+
+  // NEW: Dynamic Data Fetching for Exporting
+  const fetchExportData = async () => {
+    const db = await loadDatabase();
+    let query = `
+      SELECT r.invoice_number as Invoice_ID, c.name as Customer_Name, c.nic as NIC, 
+             r.start_date as Issue_Date, r.return_date as Return_Date, 
+             r.billed_days as Total_Days, r.total_amount as Revenue 
+      FROM rentals r JOIN customers c ON r.customer_id = c.id 
+      WHERE r.status = 'Completed'
+    `;
+    let params: string[] = [];
+    let dateRangeText = "All Time";
+
+    const today = new Date();
+
+    if (exportRange === '7days') {
+      const d = new Date();
+      d.setDate(today.getDate() - 7);
+      const startStr = d.toISOString().split('T')[0];
+      const endStr = today.toISOString().split('T')[0];
+      query += ` AND r.return_date >= $1 AND r.return_date <= $2`;
+      params = [startStr, endStr];
+      dateRangeText = `Last 7 Days (${startStr} to ${endStr})`;
+    } else if (exportRange === 'month') {
+      const startStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+      const eom = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      const endStr = eom.toISOString().split('T')[0];
+      query += ` AND r.return_date >= $1 AND r.return_date <= $2`;
+      params = [startStr, endStr];
+      dateRangeText = `This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`;
+    } else if (exportRange === 'custom') {
+      if (customStartDate > customEndDate) {
+        throw new Error("Start date cannot be after end date.");
+      }
+      query += ` AND r.return_date >= $1 AND r.return_date <= $2`;
+      params = [customStartDate, customEndDate];
+      dateRangeText = `Custom Range (${customStartDate} to ${customEndDate})`;
+    }
+
+    query += ` ORDER BY r.return_date DESC`;
+    const data = await db.select<any[]>(query, params);
+    return { data, dateRangeText };
+  };
+
+  const handleExport = async (format: 'csv' | 'pdf') => {
     try {
-      const db = await loadDatabase();
-      const exportData = await db.select<any[]>(`
-        SELECT r.invoice_number as Invoice_ID, c.name as Customer_Name, c.nic as NIC, 
-               r.start_date as Issue_Date, r.return_date as Return_Date, 
-               r.billed_days as Total_Days, r.total_amount as Revenue 
-        FROM rentals r JOIN customers c ON r.customer_id = c.id 
-        WHERE r.status = 'Completed' ORDER BY r.return_date DESC
-      `);
+      const { data, dateRangeText } = await fetchExportData();
 
-      if (exportData.length === 0) return setModal({ isOpen: true, title: 'No Data', message: 'No completed transactions to export yet.', type: 'info' });
+      if (data.length === 0) {
+        setIsExportMenuOpen(false);
+        return setModal({ isOpen: true, title: 'No Data', message: `No completed transactions found for ${dateRangeText}.`, type: 'info' });
+      }
 
-      const headers = Object.keys(exportData[0]).join(',');
-      const rows = exportData.map(row => Object.values(row).map(value => `"${value}"`).join(','));
-      const csvContent = [headers, ...rows].join('\n');
+      if (format === 'csv') {
+        const headers = Object.keys(data[0]).join(',');
+        const rows = data.map(row => Object.values(row).map(value => `"${value}"`).join(','));
+        const csvContent = [headers, ...rows].join('\n');
 
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `DreamCo_Revenue_Report_${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `DreamCo_Revenue_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+      } else {
+        generateSummaryPDF(data, dateRangeText);
+      }
       
-      setModal({ isOpen: true, title: 'Export Successful', message: 'Your monthly revenue report has been downloaded.', type: 'success' });
-    } catch (error) { setModal({ isOpen: true, title: 'Export Failed', message: String(error), type: 'error' }); }
+      setIsExportMenuOpen(false);
+      setModal({ isOpen: true, title: 'Export Successful', message: `Your ${format.toUpperCase()} report has been downloaded.`, type: 'success' });
+    } catch (error) { 
+      setModal({ isOpen: true, title: 'Export Failed', message: String(error), type: 'error' }); 
+    }
   };
 
   const handleBackupDB = async () => {
@@ -154,8 +219,58 @@ export default function Dashboard() {
   const overdueInvoices = ongoingInvoices.filter(inv => inv.isOverdue);
 
   return (
-    <div className="space-y-8 animate-fade-in pb-12">
+    <div className="space-y-8 animate-fade-in pb-12 relative">
       <Modal {...modal} onClose={() => setModal({ ...modal, isOpen: false })} />
+
+      {/* NEW: Export Settings Modal */}
+      {isExportMenuOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsExportMenuOpen(false)}></div>
+          <div className="relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-8 rounded-2xl shadow-2xl max-w-md w-full">
+            <h3 className="text-2xl font-bold text-dreamco-dark dark:text-white mb-6">Export Report</h3>
+            
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Select Date Range</label>
+                <select 
+                  value={exportRange} 
+                  onChange={(e) => setExportRange(e.target.value as any)} 
+                  className="w-full bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-dreamco-blue/40 transition-colors"
+                >
+                  <option value="all">All Time</option>
+                  <option value="month">This Month</option>
+                  <option value="7days">Last 7 Days</option>
+                  <option value="custom">Custom Range...</option>
+                </select>
+              </div>
+
+              {exportRange === 'custom' && (
+                <div className="grid grid-cols-2 gap-4 animate-fade-in">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Start Date</label>
+                    <input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">End Date</label>
+                    <input type="date" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 outline-none" />
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-6 border-t border-gray-100 dark:border-gray-800 flex gap-3">
+                <button onClick={() => handleExport('csv')} className="flex-1 bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 py-3 rounded-xl font-semibold transition-colors flex items-center justify-center gap-2">
+                  <span>📊</span> Excel (CSV)
+                </button>
+                <button onClick={() => handleExport('pdf')} className="flex-1 bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 py-3 rounded-xl font-semibold transition-colors flex items-center justify-center gap-2">
+                  <span>📄</span> PDF Report
+                </button>
+              </div>
+            </div>
+            
+            <button onClick={() => setIsExportMenuOpen(false)} className="absolute top-4 right-5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl">&times;</button>
+          </div>
+        </div>
+      )}
 
       <header className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
         <div>
@@ -166,8 +281,9 @@ export default function Dashboard() {
           <button onClick={handleBackupDB} className="bg-gray-900 dark:bg-gray-800 text-white px-5 py-2.5 rounded-xl shadow-md hover:shadow-lg transition-all font-medium flex items-center gap-2">
             <span className="text-blue-400 font-bold">💾</span> Backup DB
           </button>
-          <button onClick={handleExportCSV} className="bg-white dark:bg-gray-700 text-dreamco-dark dark:text-white border border-gray-200 dark:border-gray-600 px-5 py-2.5 rounded-xl shadow-sm hover:shadow-md transition-all font-medium flex items-center gap-2">
-            <span className="text-green-600 font-bold">⭳</span> Export CSV
+          {/* UPDATED: Export Report Button */}
+          <button onClick={() => setIsExportMenuOpen(true)} className="bg-white dark:bg-gray-700 text-dreamco-dark dark:text-white border border-gray-200 dark:border-gray-600 px-5 py-2.5 rounded-xl shadow-sm hover:shadow-md transition-all font-medium flex items-center gap-2">
+            <span className="text-green-600 font-bold">⭳</span> Export Report
           </button>
         </div>
       </header>
@@ -193,11 +309,20 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Chart */}
         <div className="lg:col-span-2 bg-white/80 dark:bg-gray-900/60 backdrop-blur-lg p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 flex flex-col transition-colors">
-          <h3 className="text-lg font-semibold text-dreamco-dark dark:text-white mb-6">6-Month Revenue Trend (LKR)</h3>
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-semibold text-dreamco-dark dark:text-white">Revenue Trend (LKR)</h3>
+            <select 
+              value={chartFilter}
+              onChange={(e) => setChartFilter(e.target.value as '6months' | 'month' | '7days')}
+              className="bg-white dark:bg-gray-800 text-gray-700 dark:text-white border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 outline-none text-sm shadow-sm transition-colors cursor-pointer"
+            >
+              <option value="7days">Last 7 Days</option>
+              <option value="month">This Month</option>
+              <option value="6months">Last 6 Months</option>
+            </select>
+          </div>
           
-          {/* UPDATED: min-h-[300px] to min-h-75 */}
           <div className="flex-1 min-h-75 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={revenueTrend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
@@ -246,15 +371,12 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
-        {/* Ongoing Rentals Table */}
         <div className="lg:col-span-2 bg-white dark:bg-gray-900/60 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden transition-colors">
           <div className="p-5 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/50">
             <h3 className="text-lg font-semibold text-dreamco-dark dark:text-gray-200">Ongoing Rentals</h3>
           </div>
           
-          {/* UPDATED: max-h-[300px] to max-h-75 */}
           <div className="overflow-x-auto max-h-75">
-            {/* UPDATED: min-w-[500px] to min-w-125 */}
             <table className="w-full text-left border-collapse min-w-125">
               <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
                 <tr className="border-b border-gray-100 dark:border-gray-700 text-sm text-gray-500 dark:text-gray-400">
@@ -290,7 +412,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Overdue Alerts Card */}
         <div className="lg:col-span-1 bg-white/80 dark:bg-gray-900/60 backdrop-blur-lg p-6 rounded-2xl shadow-sm border border-red-100 dark:border-red-900/30 flex flex-col transition-colors">
           <div className="flex items-center gap-2 mb-4">
             <span className="text-xl">🚨</span>
