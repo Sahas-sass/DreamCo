@@ -3,7 +3,7 @@ import { loadDatabase } from '../database';
 import Modal from './Modal';
 
 interface Equipment { id: number; name: string; category: string; unique_number: string | null; total_qty: number; daily_rate: number; status: string; }
-const CATEGORIES = ["Heavy Vehicles", "Heavy Tools", "Power Tools", "Scaffolding", "Safety Gear", "General"];
+const CATEGORIES = ["Heavy Vehicles", "Heavy Tools", "Power Tools", "Bulk Items", "Safety Gear", "General"];
 
 export default function Inventory() {
   const [equipment, setEquipment] = useState<Equipment[]>([]);
