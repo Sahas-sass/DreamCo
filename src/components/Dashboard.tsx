@@ -9,7 +9,6 @@ interface RevenueData { name: string; total: number; }
 interface TopItem { name: string; rents: number; }
 interface InventoryStats { total: number; available: number; rented: number; maintenance: number; }
 
-// NEW: Interfaces for Ongoing and Overdue Rentals
 interface OngoingInvoice { 
   invoice_number: string; 
   customer_name: string; 
@@ -25,9 +24,7 @@ export default function Dashboard() {
   const [topItems, setTopItems] = useState<TopItem[]>([]);
   const [invStats, setInvStats] = useState<InventoryStats>({ total: 0, available: 0, rented: 0, maintenance: 0 });
   
-  // NEW: State for Active and Overdue invoices
   const [ongoingInvoices, setOngoingInvoices] = useState<OngoingInvoice[]>([]);
-
   const [modal, setModal] = useState({ isOpen: false, title: '', message: '', type: 'info' as 'success'|'error'|'info' });
 
   useEffect(() => {
@@ -74,7 +71,6 @@ export default function Dashboard() {
         });
         setInvStats({ total: t, available: a, rented: r, maintenance: m });
 
-        // NEW: Fetch Ongoing Invoices and Calculate Overdue Status
         const ongoingResult = await db.select<OngoingInvoice[]>(`
           SELECT r.invoice_number, c.name as customer_name, r.start_date, r.expected_return 
           FROM rentals r JOIN customers c ON r.customer_id = c.id 
@@ -82,7 +78,6 @@ export default function Dashboard() {
           ORDER BY r.expected_return ASC
         `);
         
-        // Check dates to flag overdue items
         const currentDate = new Date();
         currentDate.setHours(0, 0, 0, 0);
 
@@ -156,7 +151,6 @@ export default function Dashboard() {
     } catch (error) { setModal({ isOpen: true, title: 'Backup Error', message: String(error), type: 'error' }); }
   };
 
-  // Filter out just the overdue ones for the right-side card
   const overdueInvoices = ongoingInvoices.filter(inv => inv.isOverdue);
 
   return (
@@ -202,7 +196,9 @@ export default function Dashboard() {
         {/* Chart */}
         <div className="lg:col-span-2 bg-white/80 dark:bg-gray-900/60 backdrop-blur-lg p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 flex flex-col transition-colors">
           <h3 className="text-lg font-semibold text-dreamco-dark dark:text-white mb-6">6-Month Revenue Trend (LKR)</h3>
-          <div className="flex-1 min-h-[300px] w-full">
+          
+          {/* UPDATED: min-h-[300px] to min-h-75 */}
+          <div className="flex-1 min-h-75 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={revenueTrend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#374151" opacity={0.2} />
@@ -248,7 +244,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* NEW: ONGOING INVOICES & OVERDUE ALERTS SECTION */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
         {/* Ongoing Rentals Table */}
@@ -256,8 +251,11 @@ export default function Dashboard() {
           <div className="p-5 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/50">
             <h3 className="text-lg font-semibold text-dreamco-dark dark:text-gray-200">Ongoing Rentals</h3>
           </div>
-          <div className="overflow-x-auto max-h-[300px]">
-            <table className="w-full text-left border-collapse min-w-[500px]">
+          
+          {/* UPDATED: max-h-[300px] to max-h-75 */}
+          <div className="overflow-x-auto max-h-75">
+            {/* UPDATED: min-w-[500px] to min-w-125 */}
+            <table className="w-full text-left border-collapse min-w-125">
               <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
                 <tr className="border-b border-gray-100 dark:border-gray-700 text-sm text-gray-500 dark:text-gray-400">
                   <th className="py-3 px-6 font-medium">Invoice ID</th>
