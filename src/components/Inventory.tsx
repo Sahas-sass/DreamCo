@@ -53,6 +53,41 @@ export default function Inventory() {
     } catch (error) { setModal({ isOpen: true, title: 'Error', message: String(error), type: 'error' }); }
   };
 
+  // NEW: Handle Item Deletion
+  const handleDelete = async (id: number, status: string) => {
+    if (status === 'Rented') {
+      return setModal({ isOpen: true, title: 'Action Denied', message: 'You cannot delete an item while it is currently rented out.', type: 'error' });
+    }
+    
+    if (!window.confirm("Are you sure you want to permanently delete this item?")) return;
+
+    try {
+      const db = await loadDatabase();
+      await db.execute("DELETE FROM equipment WHERE id = $1", [id]);
+      fetchEquipment();
+      setModal({ isOpen: true, title: 'Item Deleted', message: 'The equipment has been removed from your inventory.', type: 'success' });
+    } catch (error) { 
+      setModal({ isOpen: true, title: 'Error', message: String(error), type: 'error' }); 
+    }
+  };
+
+  // NEW: Handle Maintenance Toggle
+  const handleToggleMaintenance = async (id: number, currentStatus: string) => {
+    if (currentStatus === 'Rented') {
+      return setModal({ isOpen: true, title: 'Action Denied', message: 'You cannot put an item into maintenance while it is rented out.', type: 'error' });
+    }
+
+    const newStatus = currentStatus === 'Maintenance' ? 'Available' : 'Maintenance';
+
+    try {
+      const db = await loadDatabase();
+      await db.execute("UPDATE equipment SET status = $1 WHERE id = $2", [newStatus, id]);
+      fetchEquipment();
+    } catch (error) { 
+      setModal({ isOpen: true, title: 'Error', message: String(error), type: 'error' }); 
+    }
+  };
+
   const displayedEquipment = filterCategory === 'All' ? equipment : equipment.filter(item => item.category === filterCategory);
 
   return (
@@ -129,8 +164,28 @@ export default function Inventory() {
                     'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
                   }`}>{item.status}</span>
                 </td>
+                {/* NEW: Expanded Actions Column */}
                 <td className="py-4 px-6 text-right">
-                  <button onClick={() => handleEditRate(item.id, item.daily_rate)} className="text-dreamco-blue hover:text-blue-700 dark:hover:text-blue-400 text-sm font-medium transition-colors">Edit Rate</button>
+                  <div className="flex justify-end gap-4 items-center">
+                    <button onClick={() => handleEditRate(item.id, item.daily_rate)} className="text-dreamco-blue hover:text-blue-700 dark:hover:text-blue-400 text-sm font-medium transition-colors">Edit Rate</button>
+                    
+                    {item.status !== 'Rented' && (
+                      <>
+                        <button 
+                          onClick={() => handleToggleMaintenance(item.id, item.status)} 
+                          className="text-orange-500 hover:text-orange-700 dark:hover:text-orange-400 text-sm font-medium transition-colors"
+                        >
+                          {item.status === 'Maintenance' ? 'Make Available' : 'Maintenance'}
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(item.id, item.status)} 
+                          className="text-red-500 hover:text-red-700 dark:hover:text-red-400 text-sm font-medium transition-colors"
+                        >
+                          Delete
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
