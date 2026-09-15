@@ -11,6 +11,7 @@ interface PDFData {
   days: number;
   total: number;
   discount?: number;
+  issue_date?: string; // NEW: Added Issue Date field
 }
 
 export const generateInvoicePDF = (data: PDFData, type: 'Issue' | 'Return') => {
@@ -31,30 +32,37 @@ export const generateInvoicePDF = (data: PDFData, type: 'Issue' | 'Return') => {
   
   doc.setFontSize(11);
   doc.text(`Invoice ID: ${data.invoice_number}`, 14, 60);
-  doc.text(`Date: ${data.date} at ${data.time}`, 14, 66);
   
-  doc.text(`Customer: ${data.customer_name}`, 120, 60);
-  doc.text(`NIC: ${data.nic}`, 120, 66);
+  // NEW: Print both dates if it's a Return Receipt
+  if (type === 'Return' && data.issue_date) {
+    doc.text(`Issue Date: ${data.issue_date}`, 14, 66);
+    doc.text(`Return Date: ${data.date} at ${data.time}`, 14, 72);
+    doc.text(`Customer: ${data.customer_name}`, 120, 60);
+    doc.text(`NIC: ${data.nic}`, 120, 66);
+  } else {
+    doc.text(`Date: ${data.date} at ${data.time}`, 14, 66);
+    doc.text(`Customer: ${data.customer_name}`, 120, 60);
+    doc.text(`NIC: ${data.nic}`, 120, 66);
+  }
 
-  // UPDATED: Dynamic Quantity and Subtotal Math
+  // UPDATED: Removed the "Days" column to simplify the receipt
   const tableRows = data.items.map(item => [
     `${item.name} ${item.unique_number ? `(#${item.unique_number})` : ''}`,
     (item.qty || 1).toString(), 
     `Rs. ${item.daily_rate.toLocaleString('en-LK')}`,
-    data.days.toString(),
     `Rs. ${(item.daily_rate * (item.qty || 1) * data.days).toLocaleString('en-LK')}`
   ]);
 
   autoTable(doc, {
-    startY: 75,
-    head: [['Item Description', 'Qty', 'Daily Rate', 'Days', 'Subtotal']],
+    startY: type === 'Return' ? 80 : 75, // Pushed down slightly for returns
+    head: [['Item Description', 'Qty', 'Daily Rate', 'Subtotal']],
     body: tableRows,
     theme: 'striped',
     headStyles: { fillColor: [18, 115, 185], textColor: 255 },
     styles: { fontSize: 10, cellPadding: 4 },
   });
 
-  let finalY = (doc as any).lastAutoTable.finalY || 75;
+  let finalY = (doc as any).lastAutoTable.finalY || 80;
   
   if (data.discount && data.discount > 0) {
     const subtotal = data.total + data.discount;
